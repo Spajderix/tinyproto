@@ -7,18 +7,133 @@ SC_OK=0x00
 SC_GENERIC_ERROR=0xff
 SC_CONLIMIT=0x01
 
+MSG_MAX_SIZE=0xffffffff # 4 byte size, never change this value!!!
+
 class TinyProtoError(Exception):
     pass
 
 class TinyProtoConnection(Thread, object):
-    __slots__ = ('socket_o')
+    __slots__ = ('shutdown', 'socket_o')
+
+    def __init__(self, *args, **kwargs):
+        super(TinyProtoConnection, self).__init__(*args, **kwargs)
+        self.shutdown = False
+        self.socket_o = None
+
+    def _ba_to_s(self, size_ba):
+        'Always 4 byte size!!!'
+        if type(size_ba) is not bytearray:
+            raise ValueError('Must be a byte array')
+        s = 0
+        s += (size_ba[0] << 24 )
+        s += (size_ba[1] << 16 )
+        s += (size_ba[2] << 8 )
+        s += size_ba[3]
+        return s
+
+    def _s_to_ba(self, s):
+        'Always 4 byte size!!!'
+        if type(s) is not int:
+            raise ValueError('Must be an integer')
+        ba = bytearray()
+        ba.append(   ( (s >> 24 ) & 0xff )   )
+        ba.append(   ( (s >> 16 ) & 0xff )   )
+        ba.append(   ( (s >> 8 ) & 0xff )   )
+        ba.append(   ( s & 0xff )   )
+        return ba
+
+    def _prep_for_transmit(self, msg):
+        if type(msg) is int:
+            ba = bytearray()
+            ba.append(msg)
+        else:
+            ba = bytearray(msg)
+        return ba
+
+    def _raw_transmit(self, msg):
+        msg_a = self._prep_for_transmit(msg)
+        transmit_count = len(msg_a)
+        while transmit_count > 0:
+            res = self.socket_o.send(msg_a)
+            transmit_count -= res
+
+    def _raw_receive(self, size):
+        msg_a = bytearray()
+        recv_count = size
+        while recv_count > 0:
+            tmp = self.socket_o.recv(recv_count)
+
+            # if the connection dies for some reason
+            # then socket will return 0 byte string
+            # this is the moment to close the connection
+            if len(tmp) == 0:
+                self.shutdown = True
+                msg_a.append(0)
+                msg_a.append(0)
+                msg_a.append(0)
+                msg_a.append(0)
+                return msg_a
+
+            msg_a.extend(tmp)
+            recv_count -= len(tmp)
+        return msg_a
+
+    def _initialise_connection(self):
+        self._raw_transmit(SC_OK)
+        res = self._raw_receive(1)
+        if res[0] != SC_OK:
+            raise TinyProtoError('Initialisation error: {0}'.format(res))
+
+    def receive(self):
+        # first get a 4 byte size of a transmission
+        size_ba = self._raw_receive(4)
+        recv_count = self._ba_to_s(size_ba)
+        if recv_count > MSG_MAX_SIZE:
+            self._raw_transmit(SC_GENERIC_ERROR)
+            return False
+        self._raw_transmit(SC_OK)
+        msg_a = self._raw_receive(recv_count)
+        return msg_a
+
+    def transmit(self, msg):
+        # first prepare and send 4 byte size of a transmission
+        size_ba = self._s_to_ba(len(msg))
+        self._raw_transmit(size_ba)
+        # check if return code is OK
+        tx_status = self._raw_receive(1)
+        if tx_status[0] != SC_OK:
+            raise TinyProtoError('Transmission rejected: {0}'.format(tx_status))
+        self._raw_transmit(msg)
+
+    def _connection_loop(self):
+        while not self.shutdown:
+            rs,ws,es = select([self.socket_o], [], [], 0.1)
+            if len(rs) > 0 and rs[0] is self.socket_o:
+                msg_a = self.receive()
+                self.transmission_received(msg_a)
+            self.loop_pass()
+
+    def _cleanup_connection(self):
+        self.socket_o.close()
 
     def set_socket(self, so):
         self.socket_o = so
 
-    def on_receive(self):
-        pass #??????
+    def run(self):
+        self._initialise_connection()
+        self.pre_loop()
+        self._connection_loop()
+        self.post_loop()
+        self._cleanup_connection()
 
+    def pre_loop(self):
+        pass
+    def post_loop(self):
+        pass
+    def loop_pass(self):
+        pass
+    def transmission_received(self, msg):
+        pass
 
 
 class TinyProtoServer(object):
@@ -92,7 +207,7 @@ class TinyProtoServer(object):
 
     def _shutdown_active_cons(self):
         for x in xrange(len(self.active_connections)):
-            conn_o, sock_o self.active_connections.pop(0)
+            conn_o, sock_o = self.active_connections.pop(0)
             # !!!!this part needs to be rewritten as soon as connection class is completed!!!!!!!
             del(conn_o)
             sock_o.close()
@@ -138,4 +253,11 @@ class TinyProtoServer(object):
 
 
 class TinyProtoClient(object):
-    pass
+
+
+    def pre_loop(self):
+        pass
+    def post_loop(self):
+        pass
+    def loop_pass(self):
+        pass
