@@ -2,6 +2,7 @@
 from threading import Thread
 import socket
 from select import select
+import Queue
 
 SC_OK=0x00
 SC_GENERIC_ERROR=0xff
@@ -13,7 +14,7 @@ class TinyProtoError(Exception):
     pass
 
 class TinyProtoConnection(Thread, object):
-    __slots__ = ('shutdown', 'socket_o')
+    __slots__ = ('shutdown', 'socket_o', 'q_to_parent', 'q_to_child')
 
     def __init__(self, *args, **kwargs):
         super(TinyProtoConnection, self).__init__(*args, **kwargs)
@@ -116,6 +117,25 @@ class TinyProtoConnection(Thread, object):
     def _cleanup_connection(self):
         self.socket_o.close()
 
+    def _set_queues(self, qtp, qtc):
+        self.q_to_parent = qtp
+        self.q_to_child = qtc
+
+    def msg_to_parent(self, msg):
+        self.q_to_parent.put(msg)
+
+    def msg_from_parent(self):
+        msgs=[]
+        empty=False
+        while not empty:
+            try:
+                tmp = self.q_to_child.get(False)
+            except Queue.Empty as e:
+                empty = True
+            else:
+                msgs.append(tmp)
+        return msgs
+
     def set_socket(self, so):
         self.socket_o = so
 
@@ -134,6 +154,40 @@ class TinyProtoConnection(Thread, object):
         pass
     def transmission_received(self, msg):
         pass
+
+
+class TinyProtoConnectionHelper(object):
+    __slots__ = ('conn_o', 'socket_o', 'q_to_parent', 'q_to_child')
+
+    def __init__(self,co,so):
+        self.conn_o = co
+        self.socket_o = so
+        self.q_to_parent = Queue.Queue()
+        self.q_to_child = Queue.Queue()
+
+        self.conn_o._set_queues(self.q_to_parent, self.q_to_child)
+        self.conn_o.start()
+
+    def is_alive(self):
+        return self.conn_o.is_alive()
+
+    def cleanup(self):
+        self.socket_o.close()
+
+    def msg_to_child(self, m):
+        self.q_to_child.put(m)
+
+    def msg_from_child(self):
+        msgs = []
+        empty = False
+        while not empty:
+            try:
+                tmp = self.q_to_parent.get(False)
+            except Queue.Empty as e:
+                empty = True
+            else:
+                msgs.append(tmp)
+        return msgs
 
 
 class TinyProtoServer(object):
@@ -185,8 +239,8 @@ class TinyProtoServer(object):
         else:
             conn_o = self.connection_handler()
             conn_o.set_socket(con)
-            conn_o.start()
-            self.active_connections.append( (conn_o, con) )
+            conn_h = TinyProtoConnectionHelper(conn_o, con)
+            self.active_connections.append(conn_h)
 
     def _server_loop(self):
         while not self.shutdown:
@@ -197,21 +251,19 @@ class TinyProtoServer(object):
                     self._initialise_connection(new_sock, new_addr)
             # cleanup closed connections
             for x in xrange(len(self.active_connections)):
-                conn_o, sock_o = self.active_connections.pop(0)
-                if conn_o.is_alive():
-                    self.active_connections.append( (conn_o, sock_o) )
+                conn_h = self.active_connections.pop(0)
+                if conn_h.is_alive():
+                    self.active_connections.append(conn_h)
                 else:
-                    # if it is not alive, then let's clean up the socket
-                    sock_o.close()
+                    conn_h.cleanup()
             self.loop_pass()
 
     def _shutdown_active_cons(self):
         for x in xrange(len(self.active_connections)):
-            conn_o, sock_o = self.active_connections.pop(0)
+            conn_h = self.active_connections.pop(0)
             # !!!!this part needs to be rewritten as soon as connection class is completed!!!!!!!
-            del(conn_o)
-            sock_o.close()
-            del(sock_o)
+            conn_h.cleanup()
+            del(conn_h)
 
     def _close_listeners(self):
         for x in xrange(len(self.listen_socks)):
