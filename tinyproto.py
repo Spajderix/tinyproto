@@ -290,7 +290,7 @@ class TinyProtoServer(object):
         self._activate_listeners()
         self.pre_loop()
         self._server_loop()
-        self._post_loop()
+        self.post_loop()
         self._shutdown_active_cons()
         self._close_listeners()
 
@@ -305,6 +305,44 @@ class TinyProtoServer(object):
 
 
 class TinyProtoClient(object):
+    __slots__ = ('shutdown', 'active_connections', 'connection_handler')
+
+    def __init__(self):
+        self.shutdown = False
+        self.active_connections = []
+        self.connection_handler = TinyProtoConnection
+
+    def set_conn_handler(self, handler):
+        if not issubclass(handler, TinyProtoConnection):
+            raise ValueError('Connection handler must be a subclass of TinyProtoConnection')
+        self.connection_handler = handler
+
+    def _shutdown_active_cons(self):
+        for x in xrange(len(self.active_connections)):
+            conn_h = self.active_connections.pop(0)
+            # !!!!this part needs to be rewritten as soon as connection class is completed!!!!!!!
+            conn_h.cleanup()
+            del(conn_h)
+
+    def _client_loop(self):
+        while not self.shutdown:
+            self.loop_pass()
+
+    def connect_to(self, host, port):
+        conn_o = self.connection_handler()
+        socket_o = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        socket_o.connect( (host, port) )
+        conn_o.set_socket(socket_o)
+        conn_h = TinyProtoConnectionHelper(conn_o, socket_o)
+        self.active_connections.append(conn_h)
+        return len(self.active_connections) - 1
+
+
+    def start(self):
+        self.pre_loop()
+        self._client_loop()
+        self.post_loop()
+        self._shutdown_active_cons()
 
 
     def pre_loop(self):
