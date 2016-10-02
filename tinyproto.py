@@ -4,22 +4,30 @@ import socket
 from select import select
 import Queue
 
-SC_OK=0x00
-SC_GENERIC_ERROR=0xff
-SC_CONLIMIT=0x01
+SC_OK=0xff
+SC_GENERIC_ERROR=0x00
+SC_CONLIMIT=0xfe
+SC_CONFLICT=0xfd
 
 MSG_MAX_SIZE=0xffffffff # 4 byte size, never change this value!!!
 
 class TinyProtoError(Exception):
     pass
 
+class TinyProtoPlugin(object):
+    def msg_transmit(self, msg):
+        return msg
+    def msg_receive(self, msg):
+        return msg
+
 class TinyProtoConnection(Thread, object):
-    __slots__ = ('shutdown', 'socket_o', 'q_to_parent', 'q_to_child')
+    __slots__ = ('shutdown', 'socket_o', 'q_to_parent', 'q_to_child', 'plugin_list')
 
     def __init__(self, *args, **kwargs):
         super(TinyProtoConnection, self).__init__(*args, **kwargs)
         self.shutdown = False
         self.socket_o = None
+        self.plugin_list = []
 
     def _ba_to_s(self, size_ba):
         'Always 4 byte size!!!'
@@ -50,6 +58,16 @@ class TinyProtoConnection(Thread, object):
         else:
             ba = bytearray(msg)
         return ba
+
+    def _process_plugins_transmit(self, msg):
+        for p in self.plugin_list:
+            msg = p.msg_transmit(msg)
+        return msg
+
+    def _process_plugins_receive(self, msg):
+        for x in xrange(len(self.plugin_list)-1, -1, -1):
+            msg =  self.plugin_list[x].msg_receive(msg)
+        return msg
 
     def _raw_transmit(self, msg):
         msg_a = self._prep_for_transmit(msg)
@@ -94,9 +112,14 @@ class TinyProtoConnection(Thread, object):
             return False
         self._raw_transmit(SC_OK)
         msg_a = self._raw_receive(recv_count)
+        # as the last step, push message through all plugins
+        msg_a = self._process_plugins_receive(msg_a)
         return msg_a
 
     def transmit(self, msg):
+        # before we can even begin calculating anything, we have to process all plugins
+        # because the size might change in the process
+        msg = self._process_plugins_transmit(msg)
         # first prepare and send 4 byte size of a transmission
         size_ba = self._s_to_ba(len(msg))
         self._raw_transmit(size_ba)
@@ -138,6 +161,18 @@ class TinyProtoConnection(Thread, object):
 
     def set_socket(self, so):
         self.socket_o = so
+
+    def register_plugin(self, plugin):
+        try:
+            if issubclass(plugin, TinyProtoPlugin):
+                self.plugin_list.append(plugin())
+            else:
+                raise ValueError('Not a subclass of TinyProtoPlugin')
+        except TypeError as e:
+            if isinstance(plugin, TinyProtoPlugin):
+                self.plugin_list.append(plugin)
+            else:
+                raise ValueError('Not a subclass of TinyProtoPlugin')
 
     def run(self):
         self._initialise_connection()
@@ -239,6 +274,7 @@ class TinyProtoServer(object):
         else:
             conn_o = self.connection_handler()
             conn_o.set_socket(con)
+            self.conn_init(conn_o)
             conn_h = TinyProtoConnectionHelper(conn_o, con)
             self.active_connections.append(conn_h)
 
@@ -300,6 +336,8 @@ class TinyProtoServer(object):
     def post_loop(self):
         pass
     def loop_pass(self):
+        pass
+    def conn_init(self, conn_o):
         pass
 
 
