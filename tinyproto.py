@@ -226,7 +226,7 @@ class TinyProtoConnectionHelper(object):
 
 
 class TinyProtoServer(object):
-    __slots__ = ('shutdown', 'listen_addrs', 'listen_socks', 'active_connections', 'connection_handler', 'connection_limit')
+    __slots__ = ('shutdown', 'listen_addrs', 'listen_socks', 'active_connections', 'connection_handler', 'connection_limit', 'connection_plugin_list')
 
     def __init__(self):
         self.shutdown=False
@@ -240,6 +240,7 @@ class TinyProtoServer(object):
         self.connection_handler=TinyProtoConnection
         'connection_handler will hold a base class, which will be used to handle incoming connections'
         self.connection_limit=None # can be either None or int
+        self.connection_plugin_list=[]
 
     def _activate_l(self, addr, port):
         listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -274,6 +275,8 @@ class TinyProtoServer(object):
         else:
             conn_o = self.connection_handler()
             conn_o.set_socket(con)
+            for p in self.connection_plugin_list:
+                conn_o.register_plugin(p)
             self.conn_init(conn_o)
             conn_h = TinyProtoConnectionHelper(conn_o, con)
             self.active_connections.append(conn_h)
@@ -321,6 +324,18 @@ class TinyProtoServer(object):
         except socket.error as e:
             raise ValueError('Incorrect ip address')
         self.listen_addrs.append((ipaddr, port))
+
+    def register_connection_plugin(self, plugin):
+        try:
+            if issubclass(plugin, TinyProtoPlugin):
+                self.connection_plugin_list.append(plugin())
+            else:
+                raise ValueError('Not a subclass of TinyProtoPlugin')
+        except TypeError as e:
+            if isinstance(plugin, TinyProtoPlugin):
+                self.connection_plugin_list.append(plugin)
+            else:
+                raise ValueError('Not a subclass of TinyProtoPlugin')
 
     def start(self):
         self._activate_listeners()
