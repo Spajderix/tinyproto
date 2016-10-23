@@ -110,6 +110,9 @@ class TinyProtoConnection(Thread, object):
         if recv_count > MSG_MAX_SIZE:
             self._raw_transmit(SC_GENERIC_ERROR)
             return False
+        elif recv_count == 0 and self.shutdown:
+            # this will happen if the connection is dropped on the other side
+            return False
         self._raw_transmit(SC_OK)
         msg_a = self._raw_receive(recv_count)
         # as the last step, push message through all plugins
@@ -134,7 +137,8 @@ class TinyProtoConnection(Thread, object):
             rs,ws,es = select([self.socket_o], [], [], 0.1)
             if len(rs) > 0 and rs[0] is self.socket_o:
                 msg_a = self.receive()
-                self.transmission_received(msg_a)
+                if msg_a is not False:
+                    self.transmission_received(msg_a)
             self.loop_pass()
 
     def _cleanup_connection(self):
