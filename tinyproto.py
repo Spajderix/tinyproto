@@ -362,12 +362,13 @@ class TinyProtoServer(object):
 
 
 class TinyProtoClient(object):
-    __slots__ = ('shutdown', 'active_connections', 'connection_handler')
+    __slots__ = ('shutdown', 'active_connections', 'connection_handler', 'connection_plugin_list')
 
     def __init__(self):
         self.shutdown = False
         self.active_connections = []
         self.connection_handler = TinyProtoConnection
+        self.connection_plugin_list = []
 
     def set_conn_handler(self, handler):
         if not issubclass(handler, TinyProtoConnection):
@@ -385,11 +386,25 @@ class TinyProtoClient(object):
         while not self.shutdown:
             self.loop_pass()
 
+    def register_connection_plugin(self, plugin):
+        try:
+            if issubclass(plugin, TinyProtoPlugin):
+                self.connection_plugin_list.append(plugin())
+            else:
+                raise ValueError('Not a subclass of TinyProtoPlugin')
+        except TypeError as e:
+            if isinstance(plugin, TinyProtoPlugin):
+                self.connection_plugin_list.append(plugin)
+            else:
+                raise ValueError('Not a subclass of TinyProtoPlugin')
+
     def connect_to(self, host, port):
         conn_o = self.connection_handler()
         socket_o = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         socket_o.connect( (host, port) )
         conn_o.set_socket(socket_o)
+        for p in self.connection_plugin_list:
+            conn_o.register_plugin(p)
         conn_h = TinyProtoConnectionHelper(conn_o, socket_o)
         self.active_connections.append(conn_h)
         return len(self.active_connections) - 1
