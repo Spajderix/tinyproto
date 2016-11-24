@@ -362,18 +362,24 @@ class TinyProtoServer(object):
 
 
 class TinyProtoClient(object):
-    __slots__ = ('shutdown', 'active_connections', 'connection_handler', 'connection_plugin_list')
+    __slots__ = ('shutdown', 'active_connections', 'connection_handler', 'connection_plugin_list', 'socket_timeout')
 
     def __init__(self):
         self.shutdown = False
         self.active_connections = []
         self.connection_handler = TinyProtoConnection
         self.connection_plugin_list = []
+        self.socket_timeout = 5
 
     def set_conn_handler(self, handler):
         if not issubclass(handler, TinyProtoConnection):
             raise ValueError('Connection handler must be a subclass of TinyProtoConnection')
         self.connection_handler = handler
+
+    def set_timeout(self, t):
+        if type(t) is not int:
+            raise ValueError('Timeout value is not integer')
+        self.socket.timeout = t
 
     def _shutdown_active_cons(self):
         for x in xrange(len(self.active_connections)):
@@ -401,6 +407,7 @@ class TinyProtoClient(object):
     def connect_to(self, host, port):
         conn_o = self.connection_handler()
         socket_o = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        socket_o.settimeout(self.socket_timeout)
         socket_o.connect( (host, port) )
         conn_o.set_socket(socket_o)
         for p in self.connection_plugin_list:
