@@ -9,7 +9,12 @@ SC_GENERIC_ERROR=0x00
 SC_CONLIMIT=0xfe
 SC_CONFLICT=0xfd
 
-MSG_MAX_SIZE=0xffffffff # 4 byte size, never change this value!!!
+MSG_MAX_SIZE=0xf0ffffff # 4 byte size, never change this value!!!
+# Above limit will make sure, that size is not mixed up with
+# SC_OK signal, which is 0xff, or any other current or future
+# signal
+# It also sets a reasonably high one time transfer limit of
+# a little over 3854 MB, which no sane person would ever reach
 
 class TinyProtoError(Exception):
     pass
@@ -196,11 +201,13 @@ class TinyProtoConnection(Thread, object):
 
 
 class TinyProtoConnectionHelper(object):
-    __slots__ = ('conn_o', 'socket_o', 'q_to_parent', 'q_to_child')
+    __slots__ = ('conn_o', 'socket_o', 'host', 'port', 'q_to_parent', 'q_to_child')
 
-    def __init__(self,co,so):
+    def __init__(self,co,so,h,p):
         self.conn_o = co
         self.socket_o = so
+        self.host=h
+        self.port=p
         self.q_to_parent = Queue.Queue()
         self.q_to_child = Queue.Queue()
 
@@ -282,7 +289,7 @@ class TinyProtoServer(object):
             for p in self.connection_plugin_list:
                 conn_o.register_plugin(p)
             self.conn_init(conn_o)
-            conn_h = TinyProtoConnectionHelper(conn_o, con)
+            conn_h = TinyProtoConnectionHelper(conn_o, con, *addr)
             self.active_connections.append(conn_h)
 
     def _server_loop(self):
@@ -379,7 +386,7 @@ class TinyProtoClient(object):
     def set_timeout(self, t):
         if type(t) is not int:
             raise ValueError('Timeout value is not integer')
-        self.socket.timeout = t
+        self.socket_timeout = t
 
     def _shutdown_active_cons(self):
         for x in xrange(len(self.active_connections)):
@@ -412,7 +419,7 @@ class TinyProtoClient(object):
         conn_o.set_socket(socket_o)
         for p in self.connection_plugin_list:
             conn_o.register_plugin(p)
-        conn_h = TinyProtoConnectionHelper(conn_o, socket_o)
+        conn_h = TinyProtoConnectionHelper(conn_o, socket_o, host, port)
         self.active_connections.append(conn_h)
         return len(self.active_connections) - 1
 
