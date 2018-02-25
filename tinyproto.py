@@ -26,12 +26,14 @@ class TinyProtoPlugin(object):
         return msg
 
 class TinyProtoConnection(Thread, object):
-    __slots__ = ('shutdown', 'socket_o', 'q_to_parent', 'q_to_child', 'plugin_list')
+    __slots__ = ('shutdown', 'socket_o', 'is_socket_up', 'remote_details', 'q_to_parent', 'q_to_child', 'plugin_list')
 
     def __init__(self, *args, **kwargs):
         super(TinyProtoConnection, self).__init__(*args, **kwargs)
         self.shutdown = False
         self.socket_o = None
+        self.is_socket_up = False
+        self.remote_details = None # address and port in case connection needs to be initialised inside thread
         self.plugin_list = []
 
     def _ba_to_s(self, size_ba):
@@ -103,6 +105,9 @@ class TinyProtoConnection(Thread, object):
         return msg_a
 
     def _initialise_connection(self):
+        if not self.is_socket_up and self.remote_details is not None:
+            self.socket_o.connect( self.remote_details)
+            self.is_socket_up = True
         self._raw_transmit(SC_OK)
         res = self._raw_receive(1)
         if res[0] != SC_OK:
@@ -168,8 +173,10 @@ class TinyProtoConnection(Thread, object):
                 msgs.append(tmp)
         return msgs
 
-    def set_socket(self, so):
+    def set_socket(self, so, is_up=True, conn_details=None):
         self.socket_o = so
+        self.is_socket_up = is_up
+        self.remote_details = conn_details
 
     def register_plugin(self, plugin):
         try:
@@ -234,6 +241,10 @@ class TinyProtoConnectionHelper(object):
             else:
                 msgs.append(tmp)
         return msgs
+
+    def requeue_msg_from_child(self, m):
+        """Might be used, when messages are picked up, but later decided to be addressed to a different part of code, and need to be requeued for pickup by some other process """
+        self.q_to_parent.put(m)
 
 
 class TinyProtoServer(object):
@@ -305,6 +316,7 @@ class TinyProtoServer(object):
                 if conn_h.is_alive():
                     self.active_connections.append(conn_h)
                 else:
+                    self.conn_shutdown(conn_h)
                     conn_h.cleanup()
             self.loop_pass()
 
@@ -365,6 +377,8 @@ class TinyProtoServer(object):
         pass
     def conn_init(self, conn_o):
         pass
+    def conn_shutdown(self, conn_h):
+        pass
 
 
 
@@ -415,8 +429,7 @@ class TinyProtoClient(object):
         conn_o = self.connection_handler()
         socket_o = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         socket_o.settimeout(self.socket_timeout)
-        socket_o.connect( (host, port) )
-        conn_o.set_socket(socket_o)
+        conn_o.set_socket(socket_o, False, (host, port))
         for p in self.connection_plugin_list:
             conn_o.register_plugin(p)
         conn_h = TinyProtoConnectionHelper(conn_o, socket_o, host, port)
