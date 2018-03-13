@@ -80,7 +80,7 @@ class TinyProtoConnection(Thread, object):
         msg_a = self._prep_for_transmit(msg)
         transmit_count = len(msg_a)
         while transmit_count > 0:
-            res = self.socket_o.send(msg_a)
+            res = self.socket_o.send(msg_a[(transmit_count * -1):])
             transmit_count -= res
 
     def _raw_receive(self, size):
