@@ -2,7 +2,7 @@
 from threading import Thread
 import socket
 from select import select
-import Queue
+import queue
 
 SC_OK=0xff
 SC_GENERIC_ERROR=0x00
@@ -72,7 +72,7 @@ class TinyProtoConnection(Thread, object):
         return msg
 
     def _process_plugins_receive(self, msg):
-        for x in xrange(len(self.plugin_list)-1, -1, -1):
+        for x in range(len(self.plugin_list)-1, -1, -1):
             msg =  self.plugin_list[x].msg_receive(msg)
         return msg
 
@@ -167,7 +167,7 @@ class TinyProtoConnection(Thread, object):
         while not empty:
             try:
                 tmp = self.q_to_child.get(False)
-            except Queue.Empty as e:
+            except queue.Empty as e:
                 empty = True
             else:
                 msgs.append(tmp)
@@ -215,8 +215,8 @@ class TinyProtoConnectionHelper(object):
         self.socket_o = so
         self.host=h
         self.port=p
-        self.q_to_parent = Queue.Queue()
-        self.q_to_child = Queue.Queue()
+        self.q_to_parent = queue.Queue()
+        self.q_to_child = queue.Queue()
 
         self.conn_o._set_queues(self.q_to_parent, self.q_to_child)
         self.conn_o.start()
@@ -236,7 +236,7 @@ class TinyProtoConnectionHelper(object):
         while not empty:
             try:
                 tmp = self.q_to_parent.get(False)
-            except Queue.Empty as e:
+            except queue.Empty as e:
                 empty = True
             else:
                 msgs.append(tmp)
@@ -311,7 +311,7 @@ class TinyProtoServer(object):
                     new_sock, new_addr = active_s.accept()
                     self._initialise_connection(new_sock, new_addr)
             # cleanup closed connections
-            for x in xrange(len(self.active_connections)):
+            for x in range(len(self.active_connections)):
                 conn_h = self.active_connections.pop(0)
                 if conn_h.is_alive():
                     self.active_connections.append(conn_h)
@@ -321,14 +321,14 @@ class TinyProtoServer(object):
             self.loop_pass()
 
     def _shutdown_active_cons(self):
-        for x in xrange(len(self.active_connections)):
+        for x in range(len(self.active_connections)):
             conn_h = self.active_connections.pop(0)
             # !!!!this part needs to be rewritten as soon as connection class is completed!!!!!!!
             conn_h.cleanup()
             del(conn_h)
 
     def _close_listeners(self):
-        for x in xrange(len(self.listen_socks)):
+        for x in range(len(self.listen_socks)):
             ls = self.listen_socks.pop(0)
             ls.close()
             del(ls)
@@ -403,7 +403,7 @@ class TinyProtoClient(object):
         self.socket_timeout = t
 
     def _shutdown_active_cons(self):
-        for x in xrange(len(self.active_connections)):
+        for x in range(len(self.active_connections)):
             conn_h = self.active_connections.pop(0)
             # !!!!this part needs to be rewritten as soon as connection class is completed!!!!!!!
             conn_h.cleanup()
