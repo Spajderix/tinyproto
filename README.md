@@ -9,7 +9,7 @@ There are a few components to this library. Basic operation with this library is
 
 The master branch contains a code which is compatible with python2. There is python3 branch available, which is compatible with python3. The code is available for both for the time being, but will be merged to only support python3 in the future.
 
-There is a simple example at the end of this README, for the more advanced example please look into **tpft**
+There is a simple example at the end of this README, for the more advanced example please look into [tpft](https://github.com/Spajderix/tpft)
 
 ## TinyProtoConnection
 This class handles everything that happens within a connection. It's designed to become a separate thread upon established connection. Once the connection is created and an instance of this class starts a thread, the main function of this thread will initiate a sequence of methods. First of them is `pre_loop`, which will get executed only once, right after connection is established, but before the main connection loop. After that a connection loop will start which will check for any message that can be received, and will execute `loop_pass` on every loop pass. After the loop ends ( when the connection is being closed ), `post_loop` will be executed, which is also executed only once. Whenever any transmission is sent to a connection, and the transmission is detected within a loop, method `transmission_received` will be called, with the transmitted message as it's first parameter.
