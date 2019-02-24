@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this library.  If not, see <http://www.gnu.org/licenses/>.
 #
-from threading import Thread
+from threading import Thread, Lock
 import socket
 from select import select
 import queue
@@ -41,7 +41,7 @@ class TinyProtoPlugin(object):
         return msg
 
 class TinyProtoConnection(Thread, object):
-    __slots__ = ('shutdown', 'socket_o', 'is_socket_up', 'remote_details', 'q_to_parent', 'q_to_child', 'plugin_list')
+    __slots__ = ('shutdown', 'socket_o', 'is_socket_up', 'remote_details', 'plugin_list', 'connection_lock')
 
     def __init__(self, *args, **kwargs):
         super(TinyProtoConnection, self).__init__(*args, **kwargs)
@@ -50,6 +50,7 @@ class TinyProtoConnection(Thread, object):
         self.is_socket_up = False
         self.remote_details = None # address and port in case connection needs to be initialised inside thread
         self.plugin_list = []
+        self.connection_lock = Lock()
 
     def _ba_to_s(self, size_ba):
         'Always 4 byte size!!!'
@@ -129,33 +130,35 @@ class TinyProtoConnection(Thread, object):
             raise TinyProtoError('Initialisation error: {0}'.format(res))
 
     def receive(self):
-        # first get a 4 byte size of a transmission
-        size_ba = self._raw_receive(4)
-        recv_count = self._ba_to_s(size_ba)
-        if recv_count > MSG_MAX_SIZE:
-            self._raw_transmit(SC_GENERIC_ERROR)
-            return False
-        elif recv_count == 0 and self.shutdown:
-            # this will happen if the connection is dropped on the other side
-            return False
-        self._raw_transmit(SC_OK)
-        msg_a = self._raw_receive(recv_count)
-        # as the last step, push message through all plugins
-        msg_a = self._process_plugins_receive(msg_a)
-        return msg_a
+        with self.connection_lock:
+            # first get a 4 byte size of a transmission
+            size_ba = self._raw_receive(4)
+            recv_count = self._ba_to_s(size_ba)
+            if recv_count > MSG_MAX_SIZE:
+                self._raw_transmit(SC_GENERIC_ERROR)
+                return False
+            elif recv_count == 0 and self.shutdown:
+                # this will happen if the connection is dropped on the other side
+                return False
+            self._raw_transmit(SC_OK)
+            msg_a = self._raw_receive(recv_count)
+            # as the last step, push message through all plugins
+            msg_a = self._process_plugins_receive(msg_a)
+            return msg_a
 
     def transmit(self, msg):
-        # before we can even begin calculating anything, we have to process all plugins
-        # because the size might change in the process
-        msg = self._process_plugins_transmit(msg)
-        # first prepare and send 4 byte size of a transmission
-        size_ba = self._s_to_ba(len(msg))
-        self._raw_transmit(size_ba)
-        # check if return code is OK
-        tx_status = self._raw_receive(1)
-        if tx_status[0] != SC_OK:
-            raise TinyProtoError('Transmission rejected: {0}'.format(tx_status))
-        self._raw_transmit(msg)
+        with self.connection_lock:
+            # before we can even begin calculating anything, we have to process all plugins
+            # because the size might change in the process
+            msg = self._process_plugins_transmit(msg)
+            # first prepare and send 4 byte size of a transmission
+            size_ba = self._s_to_ba(len(msg))
+            self._raw_transmit(size_ba)
+            # check if return code is OK
+            tx_status = self._raw_receive(1)
+            if tx_status[0] != SC_OK:
+                raise TinyProtoError('Transmission rejected: {0}'.format(tx_status))
+            self._raw_transmit(msg)
 
     def _connection_loop(self):
         while not self.shutdown:
@@ -168,25 +171,6 @@ class TinyProtoConnection(Thread, object):
 
     def _cleanup_connection(self):
         self.socket_o.close()
-
-    def _set_queues(self, qtp, qtc):
-        self.q_to_parent = qtp
-        self.q_to_child = qtc
-
-    def msg_to_parent(self, msg):
-        self.q_to_parent.put(msg)
-
-    def msg_from_parent(self):
-        msgs=[]
-        empty=False
-        while not empty:
-            try:
-                tmp = self.q_to_child.get(False)
-            except queue.Empty as e:
-                empty = True
-            else:
-                msgs.append(tmp)
-        return msgs
 
     def set_socket(self, so, is_up=True, conn_details=None):
         self.socket_o = so
@@ -220,46 +204,6 @@ class TinyProtoConnection(Thread, object):
         pass
     def transmission_received(self, msg):
         pass
-
-
-class TinyProtoConnectionHelper(object):
-    __slots__ = ('conn_o', 'socket_o', 'host', 'port', 'q_to_parent', 'q_to_child')
-
-    def __init__(self,co,so,h,p):
-        self.conn_o = co
-        self.socket_o = so
-        self.host=h
-        self.port=p
-        self.q_to_parent = queue.Queue()
-        self.q_to_child = queue.Queue()
-
-        self.conn_o._set_queues(self.q_to_parent, self.q_to_child)
-        self.conn_o.start()
-
-    def is_alive(self):
-        return self.conn_o.is_alive()
-
-    def cleanup(self):
-        self.socket_o.close()
-
-    def msg_to_child(self, m):
-        self.q_to_child.put(m)
-
-    def msg_from_child(self):
-        msgs = []
-        empty = False
-        while not empty:
-            try:
-                tmp = self.q_to_parent.get(False)
-            except queue.Empty as e:
-                empty = True
-            else:
-                msgs.append(tmp)
-        return msgs
-
-    def requeue_msg_from_child(self, m):
-        """Might be used, when messages are picked up, but later decided to be addressed to a different part of code, and need to be requeued for pickup by some other process """
-        self.q_to_parent.put(m)
 
 
 class TinyProtoServer(object):
@@ -315,8 +259,8 @@ class TinyProtoServer(object):
             for p in self.connection_plugin_list:
                 conn_o.register_plugin(p)
             self.conn_init(conn_o)
-            conn_h = TinyProtoConnectionHelper(conn_o, con, *addr)
-            self.active_connections.append(conn_h)
+            conn_o.start()
+            self.active_connections.append(conn_o)
 
     def _server_loop(self):
         while not self.shutdown:
@@ -327,20 +271,20 @@ class TinyProtoServer(object):
                     self._initialise_connection(new_sock, new_addr)
             # cleanup closed connections
             for x in range(len(self.active_connections)):
-                conn_h = self.active_connections.pop(0)
-                if conn_h.is_alive():
-                    self.active_connections.append(conn_h)
+                conn_o = self.active_connections.pop(0)
+                if conn_o.is_alive():
+                    self.active_connections.append(conn_o)
                 else:
-                    self.conn_shutdown(conn_h)
-                    conn_h.cleanup()
+                    self.conn_shutdown(conn_o)
+                    #conn_o.cleanup()
             self.loop_pass()
 
     def _shutdown_active_cons(self):
         for x in range(len(self.active_connections)):
-            conn_h = self.active_connections.pop(0)
+            conn_o = self.active_connections.pop(0)
             # !!!!this part needs to be rewritten as soon as connection class is completed!!!!!!!
-            conn_h.cleanup()
-            del(conn_h)
+            conn_o.shutdown = True
+            del(conn_o)
 
     def _close_listeners(self):
         for x in range(len(self.listen_socks)):
@@ -392,7 +336,7 @@ class TinyProtoServer(object):
         pass
     def conn_init(self, conn_o):
         pass
-    def conn_shutdown(self, conn_h):
+    def conn_shutdown(self, conn_o):
         pass
 
 
@@ -419,9 +363,9 @@ class TinyProtoClient(object):
 
     def _shutdown_active_cons(self):
         for x in range(len(self.active_connections)):
-            conn_h = self.active_connections.pop(0)
+            conn_o = self.active_connections.pop(0)
             # !!!!this part needs to be rewritten as soon as connection class is completed!!!!!!!
-            conn_h.cleanup()
+            conn_o.shutdown = True
             del(conn_h)
 
     def _client_loop(self):
@@ -447,8 +391,8 @@ class TinyProtoClient(object):
         conn_o.set_socket(socket_o, False, (host, port))
         for p in self.connection_plugin_list:
             conn_o.register_plugin(p)
-        conn_h = TinyProtoConnectionHelper(conn_o, socket_o, host, port)
-        self.active_connections.append(conn_h)
+        conn_o.start()
+        self.active_connections.append(conn_o)
         return len(self.active_connections) - 1
 
 
