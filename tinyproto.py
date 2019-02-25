@@ -41,7 +41,7 @@ class TinyProtoPlugin(object):
         return msg
 
 class TinyProtoConnection(Thread, object):
-    __slots__ = ('shutdown', 'socket_o', 'is_socket_up', 'remote_details', 'plugin_list', 'connection_lock')
+    __slots__ = ('shutdown', 'socket_o', 'is_socket_up', 'remote_details', 'plugin_list', 'connection_lock', 'peername_details')
 
     def __init__(self, *args, **kwargs):
         super(TinyProtoConnection, self).__init__(*args, **kwargs)
@@ -51,6 +51,7 @@ class TinyProtoConnection(Thread, object):
         self.remote_details = None # address and port in case connection needs to be initialised inside thread
         self.plugin_list = []
         self.connection_lock = Lock()
+        self.peername_details = None
 
     def _ba_to_s(self, size_ba):
         'Always 4 byte size!!!'
@@ -128,6 +129,7 @@ class TinyProtoConnection(Thread, object):
         res = self._raw_receive(1)
         if res[0] != SC_OK:
             raise TinyProtoError('Initialisation error: {0}'.format(res))
+        self.peername_details = self.socket_o.getpeername()
 
     def receive(self):
         with self.connection_lock:
