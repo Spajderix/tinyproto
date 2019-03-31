@@ -273,8 +273,8 @@ class TinyProtoServer(object):
                     new_sock, new_addr = active_s.accept()
                     self._initialise_connection(new_sock, new_addr)
             # cleanup closed connections
-            conn_uids = self.active_connections.keys()
-            for cuid in conn_uids
+            conn_uids = tuple(self.active_connections.keys())
+            for cuid in conn_uids:
                 conn_o = self.active_connections.pop(cuid)
                 if conn_o.is_alive():
                     self.active_connections[cuid] = conn_o
@@ -284,7 +284,7 @@ class TinyProtoServer(object):
             self.loop_pass()
 
     def _shutdown_active_cons(self):
-        conn_uids = self.active_connections.keys()
+        conn_uids = tuple(self.active_connections.keys())
         for cuid in conn_uids:
             conn_o = self.active_connections.pop(cuid)
             # !!!!this part needs to be rewritten as soon as connection class is completed!!!!!!!
@@ -367,7 +367,7 @@ class TinyProtoClient(object):
         self.socket_timeout = t
 
     def _shutdown_active_cons(self):
-        conn_uids = self.active_connections.keys()
+        conn_uids = tuple(self.active_connections.keys())
         for cuid in conn_uids:
             conn_o = self.active_connections.pop(cuid)
             # !!!!this part needs to be rewritten as soon as connection class is completed!!!!!!!
