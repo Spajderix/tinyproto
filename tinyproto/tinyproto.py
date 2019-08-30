@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright 2016 - 2018 Spajderix <spajderix@gmail.com>
+# Copyright 2016 - 2019 Spajderix <spajderix@gmail.com>
 #
 # This library is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License as published by
@@ -19,6 +19,7 @@ import socket
 from select import select
 import queue
 from uuid import uuid4 as uuid
+from time import sleep
 
 SC_OK=0xff
 SC_GENERIC_ERROR=0x00
@@ -132,7 +133,7 @@ class TinyProtoConnection(Thread, object):
             raise TinyProtoError('Initialisation error: {0}'.format(res))
         self.peername_details = self.socket_o.getpeername()
 
-    def receive(self):
+    def _receive(self):
         with self.connection_lock:
             # first get a 4 byte size of a transmission
             size_ba = self._raw_receive(4)
@@ -149,7 +150,7 @@ class TinyProtoConnection(Thread, object):
             msg_a = self._process_plugins_receive(msg_a)
             return msg_a
 
-    def transmit(self, msg):
+    def _transmit(self, msg):
         with self.connection_lock:
             # before we can even begin calculating anything, we have to process all plugins
             # because the size might change in the process
@@ -163,6 +164,19 @@ class TinyProtoConnection(Thread, object):
                 raise TinyProtoError('Transmission rejected: {0}'.format(tx_status))
             self._raw_transmit(msg)
 
+    def receive(self):
+        try:
+            return self._receive()
+        except OSError as e:
+            self.shutdown = True
+            return bytearray()
+
+    def transmit(self, msg):
+        try:
+            self._transmit(msg)
+        except OSError as e:
+            self.shutdown = True
+
     def _connection_loop(self):
         while not self.shutdown:
             rs,ws,es = select([self.socket_o], [], [], 0.1)
@@ -171,6 +185,7 @@ class TinyProtoConnection(Thread, object):
                 if msg_a is not False:
                     self.transmission_received(msg_a)
             self.loop_pass()
+            sleep(0.01)
 
     def _cleanup_connection(self):
         self.socket_o.close()
@@ -220,7 +235,7 @@ class TinyProtoServer(object):
         self.listen_socks=[]
         'Above list used to store listening sockets currently in use'
         self.active_connections = {}
-        'Above list wil be used to store connection objects based on TinyProtoConnection class, as well as socket objects - 2 element tuples'
+        'Above list wil be used to store connection objects based on TinyProtoConnection class'
         self.connection_handler=TinyProtoConnection
         'connection_handler will hold a base class, which will be used to handle incoming connections'
         self.connection_limit=None # can be either None or int
@@ -258,12 +273,13 @@ class TinyProtoServer(object):
             self._limit_exceeded(con)
         else:
             conn_o = self.connection_handler()
+            conn_id = uuid()
             conn_o.set_socket(con)
             for p in self.connection_plugin_list:
                 conn_o.register_plugin(p)
-            self.conn_init(conn_o)
+            self.conn_init(conn_id, conn_o)
             conn_o.start()
-            self.active_connections[uuid()] = conn_o
+            self.active_connections[conn_id] = conn_o
 
     def _server_loop(self):
         while not self.shutdown:
@@ -274,14 +290,14 @@ class TinyProtoServer(object):
                     self._initialise_connection(new_sock, new_addr)
             # cleanup closed connections
             conn_uids = tuple(self.active_connections.keys())
-            for cuid in conn_uids:
-                conn_o = self.active_connections.pop(cuid)
+            for conn_id in conn_uids:
+                conn_o = self.active_connections.pop(conn_id)
                 if conn_o.is_alive():
-                    self.active_connections[cuid] = conn_o
+                    self.active_connections[conn_id] = conn_o
                 else:
-                    self.conn_shutdown(conn_o)
-                    #conn_o.cleanup()
+                    self.conn_shutdown(conn_id, conn_o)
             self.loop_pass()
+            sleep(0.01)
 
     def _shutdown_active_cons(self):
         conn_uids = tuple(self.active_connections.keys())
@@ -339,9 +355,9 @@ class TinyProtoServer(object):
         pass
     def loop_pass(self):
         pass
-    def conn_init(self, conn_o):
+    def conn_init(self, conn_id, conn_o):
         pass
-    def conn_shutdown(self, conn_o):
+    def conn_shutdown(self, conn_id, conn_o):
         pass
 
 
@@ -372,11 +388,11 @@ class TinyProtoClient(object):
             conn_o = self.active_connections.pop(cuid)
             # !!!!this part needs to be rewritten as soon as connection class is completed!!!!!!!
             conn_o.shutdown = True
-            del(conn_h)
 
     def _client_loop(self):
         while not self.shutdown:
             self.loop_pass()
+            sleep(0.01)
 
     def register_connection_plugin(self, plugin):
         try:
