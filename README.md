@@ -16,7 +16,7 @@ This class handles everything that happens within a connection. It's designed to
 
 `pre_loop`, `post_loop`, `loop_pass` and `transmission_received` can be overridden with a connection subclass to define the behavior of the connection within certain actions. In addition, 2 methods of this class can be used to either transmit message or directly receive message without waiting for connection loop to catch it.
 
-`transmit` will take any message of size up to almost 4GB and send it to the other end of the connection. In a same way `receive` will wait for a transmission from the other end, of any size of up to almost 4GB, and return it as soon as entire message is received.
+`transmit` will take any message of size up to almost 4GB and send it to the other end of the connection. In a same way `receive` will wait for a transmission from the other end, of any size of up to almost 4GB, and return it as soon as entire message is received. It is unsafe to use `transmit` and `receive` outside of connection thread.
 
 What happens within the connection ( upon running transmit, or receive ) is first the overall size of the message is calculated. After the size is known, the sending end of the connection will send 4 byte size message, informing receiving end of how much data will be coming down the socket. Once the receiving end is ok with the size of the message, it will send one byte OK message. After the sending end received the OK message, it will start transmitting the message, and the receiving end will try to receive. If the socket won't send the message in full ( for any reason, turns out sockets are weirdos ), the sending end will retry sending the missing part, and receiving end will try to get data from a socket in a loop until entire message is received.
 
@@ -37,7 +37,7 @@ If main loop is used, a few methods can be overridden. `pre_loop` will be execut
 In order to connect to a server, `connect_to` method can be used. It accepts ip address and port as it's parameters. Upon establishing connection, it will return an index to an active connection list, on which the connection is placed. `set_timeout` method will set default timeout on each created connection. `set_conn_handler` method will set a subclass of TinyProtoConnection class, which will be a base for every new connection.
 
 # Example
-Following example is echo server and echo client. The client will read data from keyboard and send it over to the server, until it receives `QUIT` or `SRVQUIT`. The server will receive everything and echo it back to the client in response, until connection closes. On `SRVQUIT` the server will shutdown along with all clients.
+A chat client/server example is avialable under `example` subdirectory. Following example is echo server and echo client. The client will read data from keyboard and send it over to the server, until it receives `QUIT` or `SRVQUIT`. The server will receive everything and echo it back to the client in response, until connection closes. On `SRVQUIT` the server will shutdown along with all clients.
 
 ## Server
 ```python
