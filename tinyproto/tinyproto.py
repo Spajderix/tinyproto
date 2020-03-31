@@ -14,12 +14,15 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this library.  If not, see <http://www.gnu.org/licenses/>.
 #
-from threading import Thread, Lock
+from threading import Thread, RLock
 import socket
 from select import select
 import queue
 from uuid import uuid4 as uuid
 from time import sleep
+import logging
+
+log = logging.getLogger(__name__)
 
 SC_OK=0xff
 SC_GENERIC_ERROR=0x00
@@ -52,7 +55,7 @@ class TinyProtoConnection(Thread, object):
         self.is_socket_up = False
         self.remote_details = None # address and port in case connection needs to be initialised inside thread
         self.plugin_list = []
-        self.connection_lock = Lock()
+        self.connection_lock = RLock()
         self.peername_details = None
 
     def _ba_to_s(self, size_ba):
@@ -169,23 +172,26 @@ class TinyProtoConnection(Thread, object):
             return self._receive()
         except OSError as e:
             self.shutdown = True
+            log.error('Shutting down connection on receive due to error {}'.format(e))
             return bytearray()
 
     def transmit(self, msg):
         try:
             self._transmit(msg)
         except OSError as e:
+            log.error('Shutting down connection on transmit due to error {}'.format(e))
             self.shutdown = True
 
     def _connection_loop(self):
         while not self.shutdown:
-            rs,ws,es = select([self.socket_o], [], [], 0.1)
-            if len(rs) > 0 and rs[0] is self.socket_o:
-                msg_a = self.receive()
-                if msg_a is not False:
-                    self.transmission_received(msg_a)
-            self.loop_pass()
-            sleep(0.01)
+            with self.connection_lock:
+                rs,ws,es = select([self.socket_o], [], [], 0.1)
+                if len(rs) > 0 and rs[0] is self.socket_o:
+                    msg_a = self.receive()
+                    if msg_a is not False:
+                        self.transmission_received(msg_a)
+                self.loop_pass()
+                sleep(0.01)
 
     def _cleanup_connection(self):
         self.socket_o.close()
