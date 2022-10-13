@@ -19,6 +19,7 @@ import socket
 from select import select
 import queue
 from uuid import uuid4 as uuid
+from uuid import UUID
 from time import sleep
 import logging
 
@@ -412,7 +413,7 @@ class TinyProtoClient(object):
             else:
                 raise ValueError('Not a subclass of TinyProtoPlugin')
 
-    def connect_to(self, host, port):
+    def connect_to(self, host, port) -> UUID:
         conn_o = self.connection_handler()
         socket_o = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         socket_o.settimeout(self.socket_timeout)
