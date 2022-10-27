@@ -192,7 +192,6 @@ class TinyProtoConnection(Thread, object):
                     if msg_a is not False:
                         self.transmission_received(msg_a)
                 self.loop_pass()
-                sleep(0.01)
 
     def _cleanup_connection(self):
         self.socket_o.close()
@@ -304,7 +303,6 @@ class TinyProtoServer(object):
                 else:
                     self.conn_shutdown(conn_id, conn_o)
             self.loop_pass()
-            sleep(0.01)
 
     def _shutdown_active_cons(self):
         conn_uids = tuple(self.active_connections.keys())
