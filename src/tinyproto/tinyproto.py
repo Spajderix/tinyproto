@@ -16,7 +16,7 @@
 #
 from threading import Thread, RLock
 import socket
-from select import select
+import selectors
 import queue
 from uuid import uuid4 as uuid
 from uuid import UUID
@@ -47,7 +47,7 @@ class TinyProtoPlugin(object):
         return msg
 
 class TinyProtoConnection(Thread, object):
-    __slots__ = ('shutdown', 'socket_o', 'is_socket_up', 'remote_details', 'plugin_list', 'connection_lock', 'peername_details')
+    __slots__ = ('shutdown', 'socket_o', 'is_socket_up', 'remote_details', 'plugin_list', 'connection_lock', 'peername_details', '_selector')
 
     def __init__(self, *args, **kwargs):
         super(TinyProtoConnection, self).__init__(*args, **kwargs)
@@ -58,6 +58,7 @@ class TinyProtoConnection(Thread, object):
         self.plugin_list = []
         self.connection_lock = RLock()
         self.peername_details = None
+        self._selector = selectors.DefaultSelector()
 
     def _ba_to_s(self, size_ba):
         'Always 4 byte size!!!'
@@ -136,6 +137,7 @@ class TinyProtoConnection(Thread, object):
         if res[0] != SC_OK:
             raise TinyProtoError('Initialisation error: {0}'.format(res))
         self.peername_details = self.socket_o.getpeername()
+        self._selector.register(self.socket_o, selectors.EVENT_READ)
 
     def _receive(self):
         with self.connection_lock:
@@ -186,8 +188,8 @@ class TinyProtoConnection(Thread, object):
     def _connection_loop(self):
         while not self.shutdown:
             with self.connection_lock:
-                rs,ws,es = select([self.socket_o], [], [], 0.1)
-                if len(rs) > 0 and rs[0] is self.socket_o:
+                selected_keys = self._selector.select(0.1)
+                if len(selected_keys) > 0 and selected_keys[0][0].fileobj == self.socket_o:
                     msg_a = self.receive()
                     if msg_a is not False:
                         self.transmission_received(msg_a)
@@ -195,6 +197,7 @@ class TinyProtoConnection(Thread, object):
 
     def _cleanup_connection(self):
         self.socket_o.close()
+        self._selector.close()
 
     def set_socket(self, so, is_up=True, conn_details=None):
         self.socket_o = so
@@ -231,7 +234,7 @@ class TinyProtoConnection(Thread, object):
 
 
 class TinyProtoServer(object):
-    __slots__ = ('shutdown', 'listen_addrs', 'listen_socks', 'active_connections', 'connection_handler', 'connection_limit', 'connection_plugin_list')
+    __slots__ = ('shutdown', 'listen_addrs', 'listen_socks', 'active_connections', 'connection_handler', 'connection_limit', 'connection_plugin_list', '_selector')
 
     def __init__(self):
         self.shutdown=False
@@ -246,12 +249,15 @@ class TinyProtoServer(object):
         'connection_handler will hold a base class, which will be used to handle incoming connections'
         self.connection_limit=None # can be either None or int
         self.connection_plugin_list=[]
+        self._selector = selectors.DefaultSelector()
 
     def _activate_l(self, addr, port):
         listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listen_socket.bind( (addr, port) )
         listen_socket.listen(5) # not sure if this value needs to be configurable, so it stays hardcoded for now
+
+        self._selector.register(listen_socket, selectors.EVENT_READ)
 
         self.listen_socks.append(listen_socket)
 
@@ -289,11 +295,11 @@ class TinyProtoServer(object):
 
     def _server_loop(self):
         while not self.shutdown:
-            rs,ws,es = select(self.listen_socks, [], [], 0.1)
-            if len(rs) > 0:
-                for active_s in rs:
-                    new_sock, new_addr = active_s.accept()
-                    self._initialise_connection(new_sock, new_addr)
+            selected_keys = self._selector.select(0.1)
+            if len(selected_keys) > 0:
+                for active_socket_key, key_mask in selected_keys:
+                    new_socket, new_addr = active_socket_key.fileobj.accept()
+                    self._initialise_connection(new_socket, new_addr)
             # cleanup closed connections
             conn_uids = tuple(self.active_connections.keys())
             for conn_id in conn_uids:
@@ -352,6 +358,7 @@ class TinyProtoServer(object):
         self.post_loop()
         self._shutdown_active_cons()
         self._close_listeners()
+        self._selector.close()
 
 
     def pre_loop(self):
