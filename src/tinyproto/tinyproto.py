@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright 2016 - 2019 Spajderix <spajderix@gmail.com>
+# Copyright 2016 - 2023 Spajderix <spajderix@gmail.com>
 #
 # This library is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License as published by
@@ -198,7 +198,7 @@ class TinyProtoConnection:
     def _connection_loop(self):
         while not self.shutdown:
             with self.connection_lock:
-                selected_keys = self._selector.select(0.1)
+                selected_keys = self._selector.select(0.03)
                 if len(selected_keys) > 0 and selected_keys[0][0].fileobj == self.socket_o:
                     msg_a = self.receive()
                     if msg_a is not False:
@@ -249,7 +249,7 @@ class TinyProtoConnection:
         pass
 
 
-class TinyProtoServer(object):
+class TinyProtoServer:
     __slots__ = ('shutdown', 'listen_addrs', 'listen_socks', 'active_connections', 'connection_handler', 'connection_limit', 'connection_plugin_list', '_selector')
 
     def __init__(self):
@@ -311,7 +311,7 @@ class TinyProtoServer(object):
 
     def _server_loop(self):
         while not self.shutdown:
-            selected_keys = self._selector.select(0.1)
+            selected_keys = self._selector.select(0.03)
             if len(selected_keys) > 0:
                 for active_socket_key, key_mask in selected_keys:
                     new_socket, new_addr = active_socket_key.fileobj.accept()
@@ -390,7 +390,7 @@ class TinyProtoServer(object):
 
 
 
-class TinyProtoClient(object):
+class TinyProtoClient:
     __slots__ = ('shutdown', 'active_connections', 'connection_handler', 'connection_plugin_list', 'socket_timeout')
 
     def __init__(self):
