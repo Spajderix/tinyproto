@@ -77,7 +77,7 @@ if __name__ == '__main__':
     print('Connection established!')
 
     buff = "abc"
-    while buff != 'quit':
+    while buff != 'quit' and conn.is_alive():
         buff = input('')
         conn.Outbox = buff
     conn.shutdown = True

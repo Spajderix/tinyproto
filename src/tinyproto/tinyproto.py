@@ -46,11 +46,20 @@ class TinyProtoPlugin(object):
     def msg_receive(self, msg):
         return msg
 
-class TinyProtoConnection(Thread, object):
-    __slots__ = ('shutdown', 'socket_o', 'is_socket_up', 'remote_details', 'plugin_list', 'connection_lock', 'peername_details', '_selector')
+class TinyProtoConnection:
+    __slots__ = (
+        'shutdown',
+        'socket_o',
+        'is_socket_up',
+        'remote_details',
+        'plugin_list',
+        'connection_lock',
+        'peername_details',
+        '_selector',
+        '_connection_loop_thread'
+    )
 
-    def __init__(self, *args, **kwargs):
-        super(TinyProtoConnection, self).__init__(*args, **kwargs)
+    def __init__(self):
         self.shutdown = False
         self.socket_o = None
         self.is_socket_up = False
@@ -59,6 +68,7 @@ class TinyProtoConnection(Thread, object):
         self.connection_lock = RLock()
         self.peername_details = None
         self._selector = selectors.DefaultSelector()
+        self._connection_loop_thread: Thread = Thread(target=self._connection_thread_runner, daemon=True)
 
     def _ba_to_s(self, size_ba):
         'Always 4 byte size!!!'
@@ -216,12 +226,18 @@ class TinyProtoConnection(Thread, object):
             else:
                 raise ValueError('Not a subclass of TinyProtoPlugin')
 
-    def run(self):
+    def _connection_thread_runner(self):
         self._initialise_connection()
         self.pre_loop()
         self._connection_loop()
         self.post_loop()
         self._cleanup_connection()
+
+    def is_alive(self) -> bool:
+        return self._connection_loop_thread.is_alive()
+
+    def start(self):
+        self._connection_loop_thread.start()
 
     def pre_loop(self):
         pass
