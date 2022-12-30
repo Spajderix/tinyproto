@@ -54,8 +54,6 @@ class ChatClientConnection(tp.TinyProtoConnection):
 class ChatClient(tp.TinyProtoClient):
     def __init__(self, *args, **kwargs):
         super(ChatClient, self).__init__(*args, **kwargs)
-        self.set_conn_handler(ChatClientConnection)
-        self.set_timeout(3)
 
         t = Thread(target = self.start)
         t.start()
@@ -70,7 +68,11 @@ class ChatClient(tp.TinyProtoClient):
 
 
 if __name__ == '__main__':
-    c = ChatClient()
+    c = ChatClient(
+        connection_handler = ChatClientConnection,
+        timeout = 3,
+    )
+
     print('Connecting ... ')
     cuid = c.connect_to('127.0.0.1', 8088)
     conn = c.active_connections[cuid]

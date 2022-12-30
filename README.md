@@ -77,9 +77,10 @@ class EchoServer(TinyProtoServer):
                 pass
 
 if __name__ == '__main__':
-    echo_server = EchoServer()
-    echo_server.set_conn_handler(EchoConnection)
-    echo_server.add_addr(HOST, PORT)
+    echo_server = EchoServer(
+        connection_handler=EchoConnection,
+        listen_addressess=[(HOST, PORT)]
+    )
     echo_server.start()
 ```
 
@@ -98,8 +99,9 @@ class EchoClientConnection(TinyProtoConnection):
         pass
 
 if __name__ == '__main__':
-    echo_client = TinyProtoClient()
-    echo_client.set_conn_handler(EchoClientConnection)
+    echo_client = TinyProtoClient(
+        connection_handler = EchoClientConnection
+    )
     echo_client.connect_to(HOST,PORT)
 
     should_quit=False

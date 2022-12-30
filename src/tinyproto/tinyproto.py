@@ -18,6 +18,7 @@ from threading import Thread, RLock
 import socket
 import selectors
 import queue
+import typing
 from uuid import uuid4 as uuid
 from uuid import UUID
 from time import sleep
@@ -59,16 +60,35 @@ class TinyProtoConnection:
         '_connection_loop_thread'
     )
 
-    def __init__(self):
-        self.shutdown = False
-        self.socket_o = None
-        self.is_socket_up = False
-        self.remote_details = None # address and port in case connection needs to be initialised inside thread
-        self.plugin_list = []
+    def __init__(
+        self,
+        socket_object: socket.socket,
+        socket_already_up: bool = True,
+        remote_host: typing.Optional[str] = None,
+        remote_port: typing.Optional[int] = None,
+        connection_plugin_list: typing.List[TinyProtoPlugin] = []
+    ):
+        self.shutdown: bool = False
         self.connection_lock = RLock()
         self.peername_details = None
         self._selector = selectors.DefaultSelector()
+
+        self.socket_o: socket.socket = socket_object
+        self.is_socket_up = socket_already_up
+
+        if remote_host is not None and remote_port is not None:
+            self.remote_details = (remote_host, remote_port)
+        else:
+            self.remote_details = None
+
+        self.plugin_list = []
+        for connection_plugin in connection_plugin_list:
+            self.register_plugin(connection_plugin)
+
         self._connection_loop_thread: Thread = Thread(target=self._connection_thread_runner, daemon=True)
+
+    def __del__(self):
+        self.shutdown = True
 
     def _ba_to_s(self, size_ba):
         'Always 4 byte size!!!'
@@ -138,17 +158,6 @@ class TinyProtoConnection:
             recv_count -= len(tmp)
         return msg_a
 
-    def _initialise_connection(self):
-        if not self.is_socket_up and self.remote_details is not None:
-            self.socket_o.connect( self.remote_details)
-            self.is_socket_up = True
-        self._raw_transmit(SC_OK)
-        res = self._raw_receive(1)
-        if res[0] != SC_OK:
-            raise TinyProtoError('Initialisation error: {0}'.format(res))
-        self.peername_details = self.socket_o.getpeername()
-        self._selector.register(self.socket_o, selectors.EVENT_READ)
-
     def _receive(self):
         with self.connection_lock:
             # first get a 4 byte size of a transmission
@@ -195,6 +204,17 @@ class TinyProtoConnection:
             log.error('Shutting down connection on transmit due to error {}'.format(e))
             self.shutdown = True
 
+    def _initialise_connection(self):
+        if not self.is_socket_up and self.remote_details is not None:
+            self.socket_o.connect( self.remote_details)
+            self.is_socket_up = True
+        self._raw_transmit(SC_OK)
+        res = self._raw_receive(1)
+        if res[0] != SC_OK:
+            raise TinyProtoError('Initialisation error: {0}'.format(res))
+        self.peername_details = self.socket_o.getpeername()
+        self._selector.register(self.socket_o, selectors.EVENT_READ)
+
     def _connection_loop(self):
         while not self.shutdown:
             with self.connection_lock:
@@ -208,11 +228,6 @@ class TinyProtoConnection:
     def _cleanup_connection(self):
         self.socket_o.close()
         self._selector.close()
-
-    def set_socket(self, so, is_up=True, conn_details=None):
-        self.socket_o = so
-        self.is_socket_up = is_up
-        self.remote_details = conn_details
 
     def register_plugin(self, plugin):
         try:
@@ -252,19 +267,34 @@ class TinyProtoConnection:
 class TinyProtoServer:
     __slots__ = ('shutdown', 'listen_addrs', 'listen_socks', 'active_connections', 'connection_handler', 'connection_limit', 'connection_plugin_list', '_selector')
 
-    def __init__(self):
-        self.shutdown=False
+    def __init__(
+        self,
+        connection_handler: TinyProtoConnection = TinyProtoConnection,
+        connection_limit: typing.Optional[int] = None,
+        connection_plugin_list: typing.List[TinyProtoPlugin] = [],
+        listen_addressess: typing.List[typing.Tuple] = [("0.0.0.0", 8899)]
+    ):
+
+
         'Whenever this flag is raised to true, server loop will terminate, and shutdown will be initiated'
-        self.listen_addrs=[]
-        'Above list will be used to hold 2-element-tuples containing ip addr and port on which to listen to for connections'
-        self.listen_socks=[]
-        'Above list used to store listening sockets currently in use'
-        self.active_connections = {}
-        'Above list wil be used to store connection objects based on TinyProtoConnection class'
-        self.connection_handler=TinyProtoConnection
-        'connection_handler will hold a base class, which will be used to handle incoming connections'
-        self.connection_limit=None # can be either None or int
-        self.connection_plugin_list=[]
+        self.shutdown=False
+        'The list used to hold 2-element-tuples containing ip addr and port on which to listen to for connections'
+        self.listen_addrs: typing.List[typing.Tuple]=[]
+        for l_host, l_port in listen_addressess:
+            self.add_addr(l_host, l_port)
+        'The list used to store listening sockets currently in use'
+        self.listen_socks: typing.List[socket.socket]=[]
+        'The dictionary used to store connection objects based on TinyProtoConnection class by their UUID'
+        self.active_connections: typing.Dict[UUID, TinyProtoConnection] = {}
+
+        self.set_conn_handler(connection_handler)
+
+        self.connection_limit: typing.Optional[int]=connection_limit
+
+        self.connection_plugin_list: typing.List[TinyProtoPlugin]=[]
+        for connection_plugin in connection_plugin_list:
+            self.register_connection_plugin(connection_plugin)
+
         self._selector = selectors.DefaultSelector()
 
     def _activate_l(self, addr, port):
@@ -292,22 +322,26 @@ class TinyProtoServer:
             return True
         return False
 
-    def _limit_exceeded(self, con):
-        con.send(bytearray(SC_CONLIMIT))
-        con.close()
+    def _respond_with_limit_exceeded_code(self, socket_object: socket.socket):
+        socket_object.send(bytearray(SC_CONLIMIT))
+        socket_object.close()
 
     def _initialise_connection(self, con, addr):
         if self._is_limit_exceeded():
-            self._limit_exceeded(con)
+            self._respond_with_limit_exceeded_code(con)
         else:
-            conn_o = self.connection_handler()
-            conn_id = uuid()
-            conn_o.set_socket(con)
-            for p in self.connection_plugin_list:
-                conn_o.register_plugin(p)
-            self.conn_init(conn_id, conn_o)
-            conn_o.start()
-            self.active_connections[conn_id] = conn_o
+            connection_id = uuid()
+            connection_object = self.connection_handler(
+                socket_object=con,
+                socket_already_up=True,
+                connection_plugin_list=self.connection_plugin_list,
+            )
+
+            self.conn_init(connection_id, connection_object)
+
+            connection_object.start()
+
+            self.active_connections[connection_id] = connection_object
 
     def _server_loop(self):
         while not self.shutdown:
@@ -340,22 +374,22 @@ class TinyProtoServer:
             ls.close()
             del(ls)
 
-    def set_conn_handler(self, handler):
+    def set_conn_handler(self, handler: TinyProtoConnection):
         if not issubclass(handler, TinyProtoConnection):
             raise ValueError('Connection handler must be a subclass of TinyProtoConnection')
         self.connection_handler = handler
 
-    def add_addr(self, ipaddr, port):
+    def add_addr(self, ipaddr: str, port: int):
         port=int(port)
         if port < 1 or port > 65535:
-            raise ValueError('Port number should be between 1 and 65535')
+            raise ValueError('Incorrect port number: {}. Port number should be between 1 and 65535'.format(port))
         try:
             socket.inet_aton(ipaddr)
         except socket.error as e:
-            raise ValueError('Incorrect ip address')
+            raise ValueError('Incorrect ip address {}'.format(ipaddr))
         self.listen_addrs.append((ipaddr, port))
 
-    def register_connection_plugin(self, plugin):
+    def register_connection_plugin(self, plugin: TinyProtoPlugin):
         try:
             if issubclass(plugin, TinyProtoPlugin):
                 self.connection_plugin_list.append(plugin())
@@ -383,9 +417,9 @@ class TinyProtoServer:
         pass
     def loop_pass(self):
         pass
-    def conn_init(self, conn_id, conn_o):
+    def conn_init(self, conn_id: UUID, conn_o: TinyProtoConnection):
         pass
-    def conn_shutdown(self, conn_id, conn_o):
+    def conn_shutdown(self, conn_id: UUID, conn_o: TinyProtoConnection):
         pass
 
 
@@ -393,22 +427,26 @@ class TinyProtoServer:
 class TinyProtoClient:
     __slots__ = ('shutdown', 'active_connections', 'connection_handler', 'connection_plugin_list', 'socket_timeout')
 
-    def __init__(self):
+    def __init__(
+        self,
+        connection_handler: TinyProtoConnection = TinyProtoConnection,
+        connection_plugin_list: typing.List[TinyProtoPlugin] = [],
+        timeout: int = 5
+    ):
         self.shutdown = False
-        self.active_connections = {}
-        self.connection_handler = TinyProtoConnection
-        self.connection_plugin_list = []
-        self.socket_timeout = 5
+        self.active_connections: typing.Dict[UUID, TinyProtoConnection] = {}
 
-    def set_conn_handler(self, handler):
+        self.set_conn_handler(connection_handler)
+
+        self.connection_plugin_list: typing.List[TinyProtoPlugin] = []
+        for connection_plugin in connection_plugin_list:
+            self.register_connection_plugin(connection_plugin)
+        self.socket_timeout: int = timeout
+
+    def set_conn_handler(self, handler: TinyProtoConnection):
         if not issubclass(handler, TinyProtoConnection):
             raise ValueError('Connection handler must be a subclass of TinyProtoConnection')
-        self.connection_handler = handler
-
-    def set_timeout(self, t):
-        if type(t) is not int:
-            raise ValueError('Timeout value is not integer')
-        self.socket_timeout = t
+        self.connection_handler: TinyProtoConnection = handler
 
     def _shutdown_active_cons(self):
         conn_uids = tuple(self.active_connections.keys())
@@ -420,7 +458,7 @@ class TinyProtoClient:
     def _client_loop(self):
         while not self.shutdown:
             self.loop_pass()
-            sleep(0.01)
+            sleep(0.03)
 
     def register_connection_plugin(self, plugin):
         try:
@@ -434,17 +472,22 @@ class TinyProtoClient:
             else:
                 raise ValueError('Not a subclass of TinyProtoPlugin')
 
-    def connect_to(self, host, port) -> UUID:
-        conn_o = self.connection_handler()
-        socket_o = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        socket_o.settimeout(self.socket_timeout)
-        conn_o.set_socket(socket_o, False, (host, port))
-        for p in self.connection_plugin_list:
-            conn_o.register_plugin(p)
-        conn_o.start()
-        cuid = uuid()
-        self.active_connections[cuid] = conn_o
-        return cuid
+    def connect_to(self, host: str, port: int) -> UUID:
+        socket_object = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        socket_object.settimeout(self.socket_timeout)
+
+        connection_id = uuid()
+        connection_object = self.connection_handler(
+            socket_object = socket_object,
+            socket_already_up = False,
+            remote_host = host,
+            remote_port = port,
+            connection_plugin_list = self.connection_plugin_list
+        )
+
+        connection_object.start()
+        self.active_connections[connection_id] = connection_object
+        return connection_id
 
 
     def start(self):

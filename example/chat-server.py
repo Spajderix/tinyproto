@@ -54,8 +54,6 @@ class ChatSrvConnection(tp.TinyProtoConnection):
 class ChatSrv(tp.TinyProtoServer):
     def __init__(self, *args, **kwargs):
         super(ChatSrv, self).__init__(*args, **kwargs)
-        self.set_conn_handler(ChatSrvConnection)
-        self.add_addr('0.0.0.0', 8088)
 
     def conn_init(self, conn_id, conn_o):
         print('[INFO] New connection opened from {}'.format(conn_o.socket_o.getpeername()))
@@ -82,5 +80,8 @@ class ChatSrv(tp.TinyProtoServer):
 
 if __name__ == '__main__':
     print('Loading server ... ')
-    srv = ChatSrv()
+    srv = ChatSrv(
+        connection_handler = ChatSrvConnection,
+        listen_addressess = [('0.0.0.0', 8088)]
+    )
     srv.start()
