@@ -10,7 +10,7 @@ class ChatSrvConnection(tp.TinyProtoConnection):
     )
 
     def __init__(self, *args, **kwargs):
-        super(ChatSrvConnection, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self.__msg_inbox = []
         self.__msg_outbox = []
@@ -53,7 +53,7 @@ class ChatSrvConnection(tp.TinyProtoConnection):
 
 class ChatSrv(tp.TinyProtoServer):
     def __init__(self, *args, **kwargs):
-        super(ChatSrv, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def conn_init(self, conn_id, conn_o):
         print('[INFO] New connection opened from {}'.format(conn_o.socket_o.getpeername()))

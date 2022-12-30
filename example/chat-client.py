@@ -9,7 +9,7 @@ class ChatClientConnection(tp.TinyProtoConnection):
     )
 
     def __init__(self, *args, **kwargs):
-        super(ChatClientConnection, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self.__msg_inbox = []
         self.__msg_outbox = []
@@ -53,7 +53,7 @@ class ChatClientConnection(tp.TinyProtoConnection):
 
 class ChatClient(tp.TinyProtoClient):
     def __init__(self, *args, **kwargs):
-        super(ChatClient, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         t = Thread(target = self.start)
         t.start()
