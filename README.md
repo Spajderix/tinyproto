@@ -41,7 +41,7 @@ A chat client/server example is avialable under `example` subdirectory. Followin
 
 ## Server
 ```python
-from tinyproto import TinyProtoServer, TinyProtoConnection
+from tinyproto import TinyProtoServer, TinyProtoConnection, TinyProtoConnectionDetails
 from threading import Event
 
 HOST='127.0.0.1'
@@ -79,14 +79,14 @@ class EchoServer(TinyProtoServer):
 if __name__ == '__main__':
     echo_server = EchoServer(
         connection_handler=EchoConnection,
-        listen_addressess=[(HOST, PORT)]
+        listen_addressess=[TinyProtoConnectionDetails(HOST, PORT)]
     )
     echo_server.start()
 ```
 
 ## Client
 ```python
-from tinyproto import TinyProtoClient, TinyProtoConnection
+from tinyproto import TinyProtoClient, TinyProtoConnection, TinyProtoConnectionDetails
 
 HOST='127.0.0.1'
 PORT=9123
@@ -102,7 +102,7 @@ if __name__ == '__main__':
     echo_client = TinyProtoClient(
         connection_handler = EchoClientConnection
     )
-    echo_client.connect_to(HOST,PORT)
+    echo_client.connect_to(TinyProtoConnectionDetails(HOST,PORT))
 
     should_quit=False
     while not should_quit:

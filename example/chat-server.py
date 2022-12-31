@@ -82,6 +82,6 @@ if __name__ == '__main__':
     print('Loading server ... ')
     srv = ChatSrv(
         connection_handler = ChatSrvConnection,
-        listen_addressess = [('0.0.0.0', 8088)]
+        listen_addressess = [tp.TinyProtoConnectionDetails('0.0.0.0', 8088)]
     )
     srv.start()

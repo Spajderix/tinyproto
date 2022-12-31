@@ -74,7 +74,8 @@ if __name__ == '__main__':
     )
 
     print('Connecting ... ')
-    cuid = c.connect_to('127.0.0.1', 8088)
+    conn_details = tp.TinyProtoConnectionDetails('127.0.0.1', 8088)
+    cuid = c.connect_to(tp.TinyProtoConnectionDetails('127.0.0.1', 8088))
     conn = c.active_connections[cuid]
     print('Connection established!')
 
