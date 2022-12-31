@@ -14,9 +14,5 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this library.  If not, see <http://www.gnu.org/licenses/>.
 #
-from .errors import TinyProtoError
-from .plugins import TinyProtoPlugin
-from .connection_details import TinyProtoConnectionDetails
-from .connection import TinyProtoConnection
-from .server import TinyProtoServer
-from .client import TinyProtoClient
+class TinyProtoError(Exception):
+    pass

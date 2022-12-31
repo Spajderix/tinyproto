@@ -14,9 +14,20 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this library.  If not, see <http://www.gnu.org/licenses/>.
 #
+import socket
 from .errors import TinyProtoError
-from .plugins import TinyProtoPlugin
-from .connection_details import TinyProtoConnectionDetails
-from .connection import TinyProtoConnection
-from .server import TinyProtoServer
-from .client import TinyProtoClient
+
+class TinyProtoConnectionDetails:
+    __slots__ = ('host', 'ipaddr', 'port')
+
+    def __init__(self, host: str, port: int):
+        if port < 1 or port > 65535:
+            raise TinyProtoError(f'Incorrect port number: {port}. Port number should be between 1 and 65535')
+        self.port: int = port
+
+        self.host: str = host
+
+        try:
+            self.ipaddr: str = socket.gethostbyname(host)
+        except socket.gaierror:
+            raise TinyProtoError(f'Incorrect host: {host}')
