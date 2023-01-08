@@ -194,7 +194,7 @@ class TinyProtoConnection:
 
     def _initialise_connection(self):
         if not self.is_socket_up and self.remote_details is not None:
-            self.socket_o.connect( (self.remote_details.ipaddr, self.remote_details.port) )
+            self.socket_o.connect( self.remote_details.socket_connect_details )
             self.is_socket_up = True
         self._raw_transmit(SC_OK)
         res = self._raw_receive(1)

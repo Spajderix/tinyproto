@@ -60,7 +60,7 @@ class TinyProtoServer:
     def _activate_l(self, connection_details: TinyProtoConnectionDetails):
         listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        listen_socket.bind( (connection_details.ipaddr, connection_details.port) )
+        listen_socket.bind( connection_details.socket_connect_details )
         listen_socket.listen(5) # not sure if this value needs to be configurable, so it stays hardcoded for now
 
         self._selector.register(listen_socket, selectors.EVENT_READ)
