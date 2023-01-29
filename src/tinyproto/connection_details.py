@@ -37,10 +37,10 @@ class TinyProtoConnectionDetails:
         
         res = [d for d in res if d[0] in TINY_PROTO_SUPPORTED_ADDRESS_FAMILY]
         res = [d for d in res if d[1] in TINY_PROTO_SUPPORTED_SOCKET_KIND]
-        
+
         if len(res) == 0:
             raise TinyProtoError(f'No supported connection details available for host/port combination for {host}:{port}')
-        
+
         a_family, s_type, s_proto, s_canon, conn_details = res[0]
 
         self.socket_connect_details = conn_details
