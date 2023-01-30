@@ -2,6 +2,7 @@ import unittest
 import unittest.mock
 import socket
 from tinyproto import TinyProtoConnection, TinyProtoError
+from tinyproto.connection import SC_OK, SC_GENERIC_ERROR
 
 
 class TestConnection(unittest.TestCase):
@@ -37,7 +38,7 @@ class TestConnection(unittest.TestCase):
         
         connection_object = TinyProtoConnection(socket_mock)
         
-        test_data = 'This is a test message'.encode()
+        test_data = 'My life amounts to no more than one drop in a limitless ocean. Yet what is any ocean, but a multitude of drops?'.encode()
         test_data_size = len(test_data)
         
         socket_mock.recv.return_value = test_data
@@ -53,7 +54,7 @@ class TestConnection(unittest.TestCase):
         
         connection_object = TinyProtoConnection(socket_mock)
         
-        test_data = 'This is a test message'.encode()
+        test_data = 'Travel far enough, you meet yourself.'.encode()
         test_data_size = len(test_data)
         
         def socket_recv_side_effect(receive_size):
@@ -89,7 +90,7 @@ class TestConnection(unittest.TestCase):
         
         connection_object = TinyProtoConnection(socket_mock)
         
-        test_data = 'Tihs is a test message'.encode()
+        test_data = "I believe there is another world waiting for us. A better world. And I'll be waiting for you there.".encode()
         
         socket_mock.send.return_value = len(test_data)
 
@@ -105,7 +106,7 @@ class TestConnection(unittest.TestCase):
         
         connection_object = TinyProtoConnection(socket_mock)
         
-        test_data = 'This is a test message'.encode()
+        test_data = "Truth is singular. Its 'versions' are mistruths.".encode()
         def socket_send_side_effect(send_data):
             if len(send_data) == len(test_data):
                 return 3
@@ -123,7 +124,95 @@ class TestConnection(unittest.TestCase):
         self.assertEqual(captured_send_data[1], test_data[3:])
         self.assertEqual(captured_send_data[2], test_data[7:])
 
-    # TODO: transmit send size followed by message
-    # TODO: transmit raise error on status not OK
-    # TODO: receive retrieves 4 byte size followed by actual message
-    # TODO: 
+    def test_transmit_will_send_size_followed_by_message(self):
+        "transmit should send 4 byte size of message followed by the actual message"
+        socket_mock = unittest.mock.MagicMock(spec=socket.socket)
+        
+        connection_object = TinyProtoConnection(socket_mock)
+        
+        test_data = "...now I'm a spent firework; but at least I've been a firework.".encode()
+        
+        socket_mock.send.side_effect = [4, len(test_data)]
+        socket_mock.recv.return_value = bytes((SC_OK,))
+        
+        connection_object.transmit(test_data)
+        
+        self.assertEqual(len(socket_mock.send.mock_calls), 2)
+        self.assertEqual(len(socket_mock.recv.mock_calls), 1)
+        
+        first_send_argument = socket_mock.send.mock_calls[0][1][0]
+        second_send_argument = socket_mock.send.mock_calls[1][1][0]
+        recv_argument = socket_mock.recv.mock_calls[0][1][0]
+        
+        self.assertEqual(first_send_argument, bytearray((0, 0, 0, len(test_data) )))
+        self.assertEqual(second_send_argument, test_data)
+        self.assertEqual(recv_argument, 1)
+        
+    def test_transmit_will_raise_on_nonok_signal(self):
+        "transmit should raise TinyProtoError when remote end sends non ok signal"
+        socket_mock = unittest.mock.MagicMock(spec=socket.socket)
+        
+        connection_object = TinyProtoConnection(socket_mock)
+        
+        test_data = "One fine day a predatory world shall consume itself.".encode()
+        
+        socket_mock.send.side_effect = [4, len(test_data)]
+        socket_mock.recv.return_value = bytes((SC_GENERIC_ERROR,))
+        
+        with self.assertRaises(TinyProtoError):
+            connection_object.transmit(test_data)
+            
+        self.assertEqual(len(socket_mock.send.mock_calls), 1)
+        self.assertEqual(len(socket_mock.recv.mock_calls), 1)
+        
+    def test_receive_will_retrieve_size_followed_by_data(self):
+        "receive should acquire 4 byte message size, reply with 1 byte signal ok, followed by retrieval of full message"
+        socket_mock = unittest.mock.MagicMock(spec=socket.socket)
+        
+        connection_object = TinyProtoConnection(socket_mock)
+        
+        test_data = "By each crime and every kindness, we birth our future.".encode()
+        
+        socket_mock.recv.side_effect = [
+            bytes((0,0,0, len(test_data))),
+            test_data
+        ]
+        socket_mock.send.return_value = 1
+        
+        result = connection_object.receive()
+        
+        self.assertEqual(result, test_data)
+        self.assertEqual(len(socket_mock.recv.mock_calls), 2)
+        self.assertEqual(len(socket_mock.send.mock_calls), 1)
+        
+        first_recv_argument = socket_mock.recv.mock_calls[0][1][0]
+        second_recv_argument = socket_mock.recv.mock_calls[1][1][0]
+        send_argument = socket_mock.send.mock_calls[0][1][0]
+        
+        self.assertEqual(first_recv_argument, 4)
+        self.assertEqual(second_recv_argument, len(test_data))
+        self.assertEqual(send_argument, bytes((SC_OK,)))
+        
+    @unittest.mock.patch('tinyproto.connection.MSG_MAX_SIZE', 5)
+    def test_receive_will_throw_on_too_big_message(self):
+        "receive should throw TinyProtoError on oversize message"
+        socket_mock = unittest.mock.MagicMock(spec=socket.socket)
+        
+        connection_object = TinyProtoConnection(socket_mock)
+        
+        socket_mock.recv.return_value = bytes((0,0,0, 42))
+        socket_mock.send.return_value = 1 # because it sends an error signal on too big message
+        
+        with self.assertRaises(TinyProtoError):
+            connection_object.receive()
+            
+    def test_receive_will_throw_on_empty_response(self):
+        "receive should throw TinyProtoError on empty response"
+        socket_mock = unittest.mock.MagicMock(spec=socket.socket)
+        
+        connection_object = TinyProtoConnection(socket_mock)
+        
+        socket_mock.recv.return_value = bytes()
+        
+        with self.assertRaises(TinyProtoError):
+            connection_object.receive()
