@@ -153,10 +153,10 @@ class TinyProtoConnection:
             recv_count = self._ba_to_s(size_ba)
             if recv_count > MSG_MAX_SIZE:
                 self._raw_transmit(SC_GENERIC_ERROR)
-                return False # TODO raise exception instead
+                raise TinyProtoError(f'Remote end trying to send message of size {recv_count} which is bigger then supported max size of {MSG_MAX_SIZE}')
             elif recv_count == 0 and self.shutdown:
                 # this will happen if the connection is dropped on the other side
-                return False # TODO raise exception instead
+                raise TinyProtoError(f'Received zero bytes from remote end. Most probably remote end dropped connection.')
             self._raw_transmit(SC_OK)
             msg_a = self._raw_receive(recv_count)
             # as the last step, push message through all plugins
