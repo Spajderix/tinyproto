@@ -31,7 +31,7 @@ class TinyProtoServer:
 
     def __init__(
         self,
-        listen_addressess: typing.List[TinyProtoConnectionDetails],
+        listen_addresses: typing.List[TinyProtoConnectionDetails],
         connection_handler: TinyProtoConnection = TinyProtoConnection,
         connection_limit: typing.Optional[int] = None,
         connection_plugin_list: typing.List[TinyProtoPlugin] = [],
@@ -41,7 +41,7 @@ class TinyProtoServer:
         'Whenever this flag is raised to true, server loop will terminate, and shutdown will be initiated'
         self.shutdown=False
         'The list used to hold 2-element-tuples containing ip addr and port on which to listen to for connections'
-        self.listen_addrs: typing.List[TinyProtoConnectionDetails]=listen_addressess
+        self.listen_addrs: typing.List[TinyProtoConnectionDetails]=listen_addresses
         'The list used to store listening sockets currently in use'
         self.listen_socks: typing.List[socket.socket]=[]
         'The dictionary used to store connection objects based on TinyProtoConnection class by their UUID'
